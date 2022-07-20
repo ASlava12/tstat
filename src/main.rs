@@ -39,6 +39,7 @@ fn get_timestamp() -> Duration {
 
 fn main() {
     let args: Args = Args::parse();
+    let mac = mac_address::mac_address_by_name(&args.interface).unwrap().unwrap().bytes();
 
     let dev: Device = find_device_by_name(Some(String::from(args.interface))).unwrap();
     let cap: Capture<Inactive> = Capture::from_device(dev).unwrap();
@@ -54,11 +55,10 @@ fn main() {
 
     while wait_until > get_timestamp() {
         let packet: Packet = cap.next().unwrap();
-
         capture.push(packet.data.to_owned());
     }
 
-    let parse_result = parse(capture);
+    let parse_result = parse(capture, &mac);
 
     print_human(parse_result, &args.wait, &args.sort, &args.top);
 }
