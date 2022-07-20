@@ -14,7 +14,7 @@ struct Args {
     #[clap(short, long, value_parser, default_value = "default")]
     interface: String,
 
-    /// filter
+    /// See http://biot.com/capstats/bpf.html for more information about this syntax.
     #[clap(short, long, value_parser, default_value = "")]
     filter: String,
 
