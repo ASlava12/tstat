@@ -316,7 +316,7 @@ fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64, t
                     "{0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
                     k,
                     v.count as f64 / time as f64,
-                    v.size as f64 / time as f64 / 1024f64 / 1024f64,
+                    8f64 * v.size as f64 / time as f64 / 1024f64 / 1024f64,
                     100f64 * v.count as f64 / count,
                     100f64 * v.size as f64 / size
                 );
@@ -330,7 +330,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     println!("TOTAL COUNT: {}", result.total_count);
     println!("TOTAL SIZE: {}", result.total_size);
     println!("TOTAL PPS: {:.2}", result.total_count as f64 / *time as f64);
-    println!("TOTAL MbPS: {:.2}", result.total_size as f64 / *time as f64 / 1024f64 / 1024f64);
+    println!("TOTAL MbPS: {:.2}", 8f64 * result.total_size as f64 / *time as f64 / 1024f64 / 1024f64);
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
