@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+
+use std::collections::HashMap;
+
+use std::fmt::Display;
 
 use pcap::Device;
 use pktparse::{
@@ -11,21 +14,21 @@ use pktparse::{
 };
 
 #[derive(Debug)]
-struct Counter {
-    count: u64,
-    size: u64,
+pub struct Counter {
+    pub count: u64,
+    pub size: u64,
 }
 
 #[derive(Debug)]
 pub struct ParseResult {
-    total_count: u64,
-    total_size: u64,
-    eth_protocols: HashMap<String, Counter>,
-    ip_protocols: HashMap<String, Counter>,
-    ip4_ttl: HashMap<u8, Counter>,
-    tcp_flags: HashMap<String, Counter>,
-    src_ports: HashMap<u16, Counter>,
-    dst_ports: HashMap<u16, Counter>,
+    pub total_count: u64,
+    pub total_size: u64,
+    pub eth_protocols: HashMap<String, Counter>,
+    pub ip_protocols: HashMap<String, Counter>,
+    pub ip4_ttl: HashMap<u8, Counter>,
+    pub tcp_flags: HashMap<String, Counter>,
+    pub src_ports: HashMap<u16, Counter>,
+    pub dst_ports: HashMap<u16, Counter>,
 }
 
 pub fn find_device_by_name(find_name: Option<String>) -> Result<pcap::Device, String> {
@@ -183,7 +186,7 @@ pub fn parse(capture: Vec<Vec<u8>>) -> ParseResult {
             ip_protocols.insert(
                 ip4_type,
                 Counter {
-                    size: ip4_proto.size + &size,
+                    size: &ip4_proto.size + &size,
                     count: ip4_proto.count + 1,
                 },
             );
@@ -298,80 +301,112 @@ pub fn parse(capture: Vec<Vec<u8>>) -> ParseResult {
     }
 }
 
-fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64) {
-    for (k, v) in map {
-        println!(
-            "{0: <10} | {1: <10} | {2: <10} | {3: <10.2} | {4: <10.2}",
-            k,
-            v.count,
-            v.size,
-            100f64 * v.count as f64 / count,
-            100f64 * v.size as f64 / size
-        );
+fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64, time: u64, sort: &bool, top: &u64) {
+    let mut vec: Vec<(&T, &Counter)> = map.iter().collect();
+    if *sort {
+        vec.sort_unstable_by(|a, b| a.1.count.cmp(&b.1.count));
+    } else {
+        vec.sort_unstable_by(|a, b| a.1.size.cmp(&b.1.size));
+    }
+
+    for n in 0..*top {
+        match vec.pop() {
+            Some((k, v)) => { // (k, v): (&T, &Counter)
+                println!(
+                    "{0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
+                    k,
+                    v.count as f64 / time as f64,
+                    v.size as f64 / time as f64 / 1024f64 / 1024f64,
+                    100f64 * v.count as f64 / count,
+                    100f64 * v.size as f64 / size
+                );
+            },
+            _ => (),
+        };
     }
 }
 
-pub fn print_human(result: ParseResult) {
+pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     println!("TOTAL COUNT: {}", result.total_count);
     println!("TOTAL SIZE: {}", result.total_size);
+    println!("TOTAL PPS: {:.2}", result.total_count as f64 / *time as f64);
+    println!("TOTAL MbPS: {:.2}", result.total_size as f64 / *time as f64 / 1024f64 / 1024f64);
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
-        "L3PROTO", "COUNT", "SIZE", "COUNT%", "SIZE%"
+        "L3PROTO", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.eth_protocols,
         &(result.total_count as f64),
         &(result.total_size as f64),
+        *time,
+        sort,
+        top,
     );
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
-        "L4PROTO", "COUNT", "SIZE", "COUNT%", "SIZE%"
+        "L4PROTO", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.ip_protocols,
         &(result.total_count as f64),
         &(result.total_size as f64),
+        *time,
+        sort,
+        top,
     );
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
-        "TTL IPv4", "COUNT", "SIZE", "COUNT%", "SIZE%"
+        "TTL IPv4", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.ip4_ttl,
         &(result.total_count as f64),
         &(result.total_size as f64),
+        *time,
+        sort,
+        top,
     );
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
-        "TCP FLAGS", "COUNT", "SIZE", "COUNT%", "SIZE%"
+        "TCP FLAGS", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.tcp_flags,
         &(result.total_count as f64),
         &(result.total_size as f64),
+        *time,
+        sort,
+        top,
     );
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
-        "SRC PORT", "COUNT", "SIZE", "COUNT%", "SIZE%"
+        "SRC PORT", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.src_ports,
         &(result.total_count as f64),
         &(result.total_size as f64),
+        *time,
+        sort,
+        top,
     );
 
     println!(
         "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
-        "DST PORT", "COUNT", "SIZE", "COUNT%", "SIZE%"
+        "DST PORT", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.dst_ports,
         &(result.total_count as f64),
         &(result.total_size as f64),
+        *time,
+        sort,
+        top,
     );
 }

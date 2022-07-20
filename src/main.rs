@@ -20,6 +20,14 @@ struct Args {
     /// Capture time in seconds
     #[clap(short, long, value_parser, default_value_t = 1)]
     wait: u64,
+
+    /// Sort by count (default by size)
+    #[clap(short, long, value_parser, default_value_t = false)]
+    sort: bool,
+
+    /// Sort by count (default by size)
+    #[clap(short, long, value_parser, default_value_t = 10)]
+    top: u64,
 }
 
 fn get_timestamp() -> Duration {
@@ -50,5 +58,7 @@ fn main() {
         capture.push(packet.data.to_owned());
     }
 
-    print_human(parse(capture));
+    let parse_result = parse(capture);
+
+    print_human(parse_result, &args.wait, &args.sort, &args.top);
 }
