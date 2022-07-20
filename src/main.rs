@@ -1,16 +1,17 @@
 use clap::Parser;
+use mac_address::MacAddressIterator;
 use pcap::{Active, Capture, Device, Inactive, Packet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod tstat;
-use tstat::{find_device_by_name, parse, print_human};
+use tstat::{find_device_by_name, parse, print_human, ParseResult};
 
 /// A simple program for capturing and analyzing network card packets
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// Network interface
-    #[clap(short, long, value_parser, default_value = "any")]
+    #[clap(short, long, value_parser, default_value = "default")]
     interface: String,
 
     /// filter
@@ -25,9 +26,13 @@ struct Args {
     #[clap(short, long, value_parser, default_value_t = false)]
     sort: bool,
 
-    /// Sort by count (default by size)
+    /// Show top Records in table
     #[clap(short, long, value_parser, default_value_t = 10)]
     top: u64,
+
+    /// Analize packets from direction (all, in, out, undef)
+    #[clap(short, long, value_parser, default_value = "all")]
+    direction: String,
 }
 
 fn get_timestamp() -> Duration {
@@ -39,12 +44,24 @@ fn get_timestamp() -> Duration {
 
 fn main() {
     let args: Args = Args::parse();
-    let mac = mac_address::mac_address_by_name(&args.interface).unwrap().unwrap().bytes();
 
-    let dev: Device = find_device_by_name(Some(String::from(args.interface))).unwrap();
+    let mac_iter: MacAddressIterator = MacAddressIterator::new().unwrap();
+    let mut mac_list: Vec<[u8; 6]> = Vec::new();
+
+    for mac in mac_iter {
+        let res: [u8; 6] = mac.bytes();
+        mac_list.push(res);
+    }
+
+    let dev: Device = if args.interface == "default" {
+        Device::lookup().unwrap()
+    } else {
+        find_device_by_name(Some(String::from(args.interface))).unwrap()
+    };
+
     let cap: Capture<Inactive> = Capture::from_device(dev).unwrap();
 
-    let mut cap: Capture<Active> = cap.timeout(1000).promisc(true).open().unwrap();
+    let mut cap: Capture<Active> = cap.timeout(1).promisc(true).open().unwrap();
 
     if args.filter != "" {
         cap.filter(&args.filter[..], false).unwrap();
@@ -58,7 +75,26 @@ fn main() {
         capture.push(packet.data.to_owned());
     }
 
-    let parse_result = parse(capture, &mac);
+    let (input, output, undefined): (ParseResult, ParseResult, ParseResult) =
+        parse(capture, mac_list);
 
-    print_human(parse_result, &args.wait, &args.sort, &args.top);
+    match &args.direction[..] {
+        "in" => {
+            print_human(input, &args.wait, &args.sort, &args.top);
+        }
+        "out" => {
+            print_human(output, &args.wait, &args.sort, &args.top);
+        }
+        "undef" => {
+            print_human(undefined, &args.wait, &args.sort, &args.top);
+        }
+        _ => {
+            println!("\n\n\nINPUT:");
+            print_human(input, &args.wait, &args.sort, &args.top);
+            println!("\n\n\nOUTPUT:");
+            print_human(output, &args.wait, &args.sort, &args.top);
+            println!("\n\n\nUNDEFINED:");
+            print_human(undefined, &args.wait, &args.sort, &args.top);
+        }
+    }
 }

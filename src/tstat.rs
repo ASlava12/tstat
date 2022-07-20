@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use std::fmt::Display;
@@ -29,6 +28,21 @@ pub struct ParseResult {
     pub tcp_flags: HashMap<String, Counter>,
     pub src_ports: HashMap<u16, Counter>,
     pub dst_ports: HashMap<u16, Counter>,
+}
+
+impl ParseResult {
+    pub fn new() -> ParseResult {
+        ParseResult {
+            total_count: 0,
+            total_size: 0,
+            eth_protocols: HashMap::new(),
+            ip_protocols: HashMap::new(),
+            ip4_ttl: HashMap::new(),
+            tcp_flags: HashMap::new(),
+            src_ports: HashMap::new(),
+            dst_ports: HashMap::new(),
+        }
+    }
 }
 
 pub fn find_device_by_name(find_name: Option<String>) -> Result<pcap::Device, String> {
@@ -146,28 +160,167 @@ fn get_tcp_flag(header: &TcpHeader) -> String {
     String::from("Unknown")
 }
 
-pub fn parse(capture: Vec<Vec<u8>>, mac: &[u8]) -> ParseResult {
-    let mut packets_count: u64 = 0;
-    let mut packets_size: u64 = 0;
-    let mut eth_protocols: HashMap<String, Counter> = HashMap::new();
-    let mut ip_protocols: HashMap<String, Counter> = HashMap::new();
-    let mut ip4_ttl: HashMap<u8, Counter> = HashMap::new();
-    let mut tcp_flags: HashMap<String, Counter> = HashMap::new();
-    let mut src_ports: HashMap<u16, Counter> = HashMap::new();
-    let mut dst_ports: HashMap<u16, Counter> = HashMap::new();
+impl ParseResult {
+    fn add_eth(self: &mut Self, eth: &EthernetFrame, size: &u64) {
+        let eth_type: String = get_eth_protocol(&eth.ethertype);
+
+        let eth_proto: &Counter = self
+            .eth_protocols
+            .get(&eth_type)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.eth_protocols.insert(
+            eth_type,
+            Counter {
+                size: eth_proto.size + size,
+                count: eth_proto.count + 1,
+            },
+        );
+    }
+
+    fn add_ip4(self: &mut Self, ip4: &IPv4Header, size: &u64) {
+        let ip4_type: String = get_ip_protocol(&ip4.protocol);
+        let ip4_proto: &Counter = self
+            .ip_protocols
+            .get(&ip4_type)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.ip_protocols.insert(
+            ip4_type,
+            Counter {
+                size: &ip4_proto.size + size,
+                count: ip4_proto.count + 1,
+            },
+        );
+
+        let ip4_ttl_value: &Counter = self
+            .ip4_ttl
+            .get(&ip4.ttl)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.ip4_ttl.insert(
+            ip4.ttl,
+            Counter {
+                size: ip4_ttl_value.size + size,
+                count: ip4_ttl_value.count + 1,
+            },
+        );
+    }
+
+    fn add_ip6(self: &mut Self, ip6: &IPv6Header, size: &u64) {
+        let ip6_type: String = get_ip_protocol(&ip6.next_header);
+        let ip6_proto: &Counter = self
+            .ip_protocols
+            .get(&ip6_type)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.ip_protocols.insert(
+            ip6_type,
+            Counter {
+                size: ip6_proto.size + size,
+                count: ip6_proto.count + 1,
+            },
+        );
+    }
+
+    fn add_tcp(self: &mut Self, tcp: &TcpHeader, size: &u64) {
+        let flag: String = get_tcp_flag(&tcp);
+
+        let tcp_flags_value: &Counter = self
+            .tcp_flags
+            .get(&flag)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.tcp_flags.insert(
+            flag,
+            Counter {
+                size: tcp_flags_value.size + size,
+                count: tcp_flags_value.count + 1,
+            },
+        );
+
+        let src_port_value: &Counter = self
+            .src_ports
+            .get(&tcp.source_port)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.src_ports.insert(
+            tcp.source_port,
+            Counter {
+                size: src_port_value.size + size,
+                count: src_port_value.count + 1,
+            },
+        );
+
+        let dst_port_value: &Counter = self
+            .dst_ports
+            .get(&tcp.dest_port)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.dst_ports.insert(
+            tcp.dest_port,
+            Counter {
+                size: dst_port_value.size + size,
+                count: dst_port_value.count + 1,
+            },
+        );
+    }
+
+    fn add_udp(self: &mut Self, udp: &UdpHeader, size: &u64) {
+        let src_port_value: &Counter = self
+            .src_ports
+            .get(&udp.source_port)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.src_ports.insert(
+            udp.source_port,
+            Counter {
+                size: src_port_value.size + size,
+                count: src_port_value.count + 1,
+            },
+        );
+
+        let dst_port_value: &Counter = self
+            .dst_ports
+            .get(&udp.dest_port)
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.dst_ports.insert(
+            udp.dest_port,
+            Counter {
+                size: dst_port_value.size + size,
+                count: dst_port_value.count + 1,
+            },
+        );
+    }
+
+    fn add_total(self: &mut Self, size: &u64) {
+        self.total_count += 1;
+        self.total_size += size;
+    }
+}
+
+fn in_vec<T: PartialEq>(vec: &Vec<T>, val: &T) -> bool {
+    for i in vec.iter() {
+        if val == i {
+            return true;
+        }
+    }
+    return false;
+} //
+
+pub fn parse(
+    capture: Vec<Vec<u8>>,
+    mac_list: Vec<[u8; 6]>,
+) -> (ParseResult, ParseResult, ParseResult) {
+    let mut input: ParseResult = ParseResult::new();
+    let mut output: ParseResult = ParseResult::new();
+    let mut undefined: ParseResult = ParseResult::new();
 
     for data in capture {
-        packets_count += 1;
         let size: u64 = data.len() as u64;
-        packets_size += size;
 
         let (data, eth): (&[u8], EthernetFrame) = parse_ethernet_frame(&data[..]).unwrap();
 
-        let is_to_server = if eth.dest_mac.0 == mac {
+        let is_to_server: Option<bool> = if in_vec(&mac_list, &eth.dest_mac.0) {
+            input.add_total(&size);
             Some(true)
-        } else if eth.source_mac.0 == mac {
+        } else if in_vec(&mac_list, &eth.source_mac.0) {
+            output.add_total(&size);
             Some(false)
         } else {
+            undefined.add_total(&size);
             None
         };
 
@@ -175,62 +328,30 @@ pub fn parse(capture: Vec<Vec<u8>>, mac: &[u8]) -> ParseResult {
             continue;
         }
 
-        let is_to_server = is_to_server.unwrap();
-
-        let eth_type: String = get_eth_protocol(&eth.ethertype);
-
-        let eth_proto: &Counter = eth_protocols
-            .get(&eth_type)
-            .unwrap_or(&Counter { size: 0, count: 0 });
-        eth_protocols.insert(
-            eth_type,
-            Counter {
-                size: eth_proto.size + &size,
-                count: eth_proto.count + 1,
-            },
-        );
+        match &is_to_server {
+            Some(true) => input.add_eth(&eth, &size),
+            Some(false) => output.add_eth(&eth, &size),
+            None => undefined.add_eth(&eth, &size),
+        }
 
         let (proto, data): (IPProtocol, &[u8]) = if eth.ethertype == EtherType::IPv4 {
             let (data, ip4): (&[u8], IPv4Header) = parse_ipv4_header(data).unwrap();
 
-            let ip4_type: String = get_ip_protocol(&ip4.protocol);
-            let ip4_proto: &Counter = ip_protocols
-                .get(&ip4_type)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            ip_protocols.insert(
-                ip4_type,
-                Counter {
-                    size: &ip4_proto.size + &size,
-                    count: ip4_proto.count + 1,
-                },
-            );
-
-            let ip4_ttl_value: &Counter = ip4_ttl
-                .get(&ip4.ttl)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            ip4_ttl.insert(
-                ip4.ttl,
-                Counter {
-                    size: ip4_ttl_value.size + &size,
-                    count: ip4_ttl_value.count + 1,
-                },
-            );
+            match &is_to_server {
+                Some(true) => input.add_ip4(&ip4, &size),
+                Some(false) => output.add_ip4(&ip4, &size),
+                None => undefined.add_ip4(&ip4, &size),
+            }
 
             (ip4.protocol, data)
         } else if eth.ethertype == EtherType::IPv6 {
             let (_, ip6): (&[u8], IPv6Header) = parse_ipv6_header(data).unwrap();
 
-            let ip6_type: String = get_ip_protocol(&ip6.next_header);
-            let ip6_proto: &Counter = ip_protocols
-                .get(&ip6_type)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            ip_protocols.insert(
-                ip6_type,
-                Counter {
-                    size: ip6_proto.size + &size,
-                    count: ip6_proto.count + 1,
-                },
-            );
+            match &is_to_server {
+                Some(true) => input.add_ip6(&ip6, &size),
+                Some(false) => output.add_ip6(&ip6, &size),
+                None => undefined.add_ip6(&ip6, &size),
+            }
 
             (ip6.next_header, data)
         } else {
@@ -240,106 +361,35 @@ pub fn parse(capture: Vec<Vec<u8>>, mac: &[u8]) -> ParseResult {
         if proto == IPProtocol::TCP {
             let (_, tcp): (&[u8], TcpHeader) = parse_tcp_header(data).unwrap();
 
-            let flag: String = get_tcp_flag(&tcp);
-
-            let tcp_flags_value: &Counter = tcp_flags
-                .get(&flag)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            tcp_flags.insert(
-                flag,
-                Counter {
-                    size: tcp_flags_value.size + &size,
-                    count: tcp_flags_value.count + 1,
-                },
-            );
-
-            let (source_port, dest_port) = if is_to_server {
-                (
-                    tcp.source_port,
-                    tcp.dest_port
-                )
-            } else {
-                (
-                    tcp.dest_port,
-                    tcp.source_port
-                )
-            };
-
-            let src_port_value: &Counter = src_ports
-                .get(&source_port)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            src_ports.insert(
-                source_port,
-                Counter {
-                    size: src_port_value.size + &size,
-                    count: src_port_value.count + 1,
-                },
-            );
-
-            let dst_port_value: &Counter = dst_ports
-                .get(&dest_port)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            dst_ports.insert(
-                dest_port,
-                Counter {
-                    size: dst_port_value.size + &size,
-                    count: dst_port_value.count + 1,
-                },
-            );
+            match &is_to_server {
+                Some(true) => input.add_tcp(&tcp, &size),
+                Some(false) => output.add_tcp(&tcp, &size),
+                None => undefined.add_tcp(&tcp, &size),
+            }
         }
 
         if proto == IPProtocol::UDP {
             let (_, udp): (&[u8], UdpHeader) = parse_udp_header(data).unwrap();
 
-            let (source_port, dest_port) = if is_to_server {
-                (
-                    udp.source_port,
-                    udp.dest_port
-                )
-            } else {
-                (
-                    udp.dest_port,
-                    udp.source_port
-                )
-            };
-
-            let src_port_value: &Counter = src_ports
-                .get(&source_port)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            src_ports.insert(
-                source_port,
-                Counter {
-                    size: src_port_value.size + &size,
-                    count: src_port_value.count + 1,
-                },
-            );
-
-            let dst_port_value: &Counter = dst_ports
-                .get(&dest_port)
-                .unwrap_or(&Counter { size: 0, count: 0 });
-            dst_ports.insert(
-                dest_port,
-                Counter {
-                    size: dst_port_value.size + &size,
-                    count: dst_port_value.count + 1,
-                },
-            );
+            match &is_to_server {
+                Some(true) => input.add_udp(&udp, &size),
+                Some(false) => output.add_udp(&udp, &size),
+                None => undefined.add_udp(&udp, &size),
+            }
         }
     }
 
-    ParseResult {
-        total_count: packets_count,
-        total_size: packets_size,
-        eth_protocols: eth_protocols,
-        ip_protocols: ip_protocols,
-        ip4_ttl: ip4_ttl,
-        tcp_flags: tcp_flags,
-        src_ports: src_ports,
-        dst_ports: dst_ports,
-    }
+    (input, output, undefined)
 }
 
-fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64, time: u64, sort: &bool, top: &u64) {
+fn print_table<T: Display>(
+    map: &HashMap<T, Counter>,
+    count: &f64,
+    size: &f64,
+    time: u64,
+    sort: &bool,
+    top: &u64,
+) {
     let mut vec: Vec<(&T, &Counter)> = map.iter().collect();
     if *sort {
         vec.sort_unstable_by(|a, b| a.1.count.cmp(&b.1.count));
@@ -347,14 +397,15 @@ fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64, t
         vec.sort_unstable_by(|a, b| a.1.size.cmp(&b.1.size));
     }
 
-    let mut fewover: Counter = Counter{size: 0, count: 0};
+    let mut fewover: Counter = Counter { size: 0, count: 0 };
 
     for n in 0..vec.len() as u64 {
         match vec.pop() {
-            Some((k, v)) => { // (k, v): (&T, &Counter)
+            Some((k, v)) => {
+                // (k, v): (&T, &Counter)
                 if n < *top {
                     println!(
-                        "{0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
+                        "    {0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
                         k,
                         v.count as f64 / time as f64,
                         8f64 * v.size as f64 / time as f64 / 1024f64 / 1024f64,
@@ -365,13 +416,13 @@ fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64, t
                     fewover.size += v.size;
                     fewover.count += v.count;
                 }
-            },
+            }
             _ => (),
         };
     }
     if fewover.size > 0 && fewover.count > 0 {
         println!(
-            "{0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
+            "    {0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
             "Not in TOP",
             fewover.count as f64 / time as f64,
             8f64 * fewover.size as f64 / time as f64 / 1024f64 / 1024f64,
@@ -382,13 +433,19 @@ fn print_table<T: Display>(map: &HashMap<T, Counter>, count: &f64, size: &f64, t
 }
 
 pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
-    println!("TOTAL COUNT: {}", result.total_count);
-    println!("TOTAL SIZE: {}", result.total_size);
-    println!("TOTAL PPS: {:.2}", result.total_count as f64 / *time as f64);
-    println!("TOTAL MbPS: {:.2}", 8f64 * result.total_size as f64 / *time as f64 / 1024f64 / 1024f64);
+    println!("    TOTAL COUNT: {}", result.total_count);
+    println!("    TOTAL SIZE: {}", result.total_size);
+    println!(
+        "    TOTAL PPS: {:.2}",
+        result.total_count as f64 / *time as f64
+    );
+    println!(
+        "    TOTAL MbPS: {:.2}",
+        8f64 * result.total_size as f64 / *time as f64 / 1024f64 / 1024f64
+    );
 
     println!(
-        "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "L3PROTO", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -401,7 +458,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "L4PROTO", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -414,7 +471,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "TTL IPv4", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -427,7 +484,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "TCP FLAGS", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -440,7 +497,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "SRC PORT", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -453,7 +510,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n{0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "DST PORT", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
