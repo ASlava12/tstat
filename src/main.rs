@@ -33,6 +33,10 @@ struct Args {
     /// Analize packets from direction (all, in, out, undef)
     #[clap(short, long, value_parser, default_value = "all")]
     direction: String,
+
+    /// More information, for debug
+    #[clap(short, long, value_parser, default_value_t = false)]
+    verbose: bool,
 }
 
 fn get_timestamp() -> Duration {
@@ -61,7 +65,13 @@ fn main() {
 
     let cap: Capture<Inactive> = Capture::from_device(dev).unwrap();
 
-    let mut cap: Capture<Active> = cap.timeout(1).promisc(true).open().unwrap();
+    let mut cap: Capture<Active> = match cap.timeout(1).promisc(true).open() {
+        Ok(cap) => cap,
+        Err(err) => {
+            println!("{}\nTry run command as sudo user!", err);
+            return;
+        }
+    };
 
     if args.filter != "" {
         cap.filter(&args.filter[..], false).unwrap();
@@ -71,12 +81,20 @@ fn main() {
     let mut capture: Vec<Vec<u8>> = Vec::new();
 
     while wait_until > get_timestamp() {
-        let packet: Packet = cap.next().unwrap();
+        let packet: Packet = match cap.next() {
+            Ok(packet) => packet,
+            Err(err) => {
+                if args.verbose {
+                    println!("Err: {}", err);
+                };
+                continue;
+            }
+        };
         capture.push(packet.data.to_owned());
     }
 
     let (input, output, undefined): (ParseResult, ParseResult, ParseResult) =
-        parse(capture, mac_list);
+        parse(capture, mac_list, args.verbose);
 
     match &args.direction[..] {
         "in" => {

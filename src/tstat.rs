@@ -303,6 +303,7 @@ fn in_vec<T: PartialEq>(vec: &Vec<T>, val: &T) -> bool {
 pub fn parse(
     capture: Vec<Vec<u8>>,
     mac_list: Vec<[u8; 6]>,
+    verbose: bool,
 ) -> (ParseResult, ParseResult, ParseResult) {
     let mut input: ParseResult = ParseResult::new();
     let mut output: ParseResult = ParseResult::new();
@@ -311,7 +312,15 @@ pub fn parse(
     for data in capture {
         let size: u64 = data.len() as u64;
 
-        let (data, eth): (&[u8], EthernetFrame) = parse_ethernet_frame(&data[..]).unwrap();
+        let (data, eth): (&[u8], EthernetFrame) = match parse_ethernet_frame(&data[..]) {
+            Ok(result) => result,
+            Err(err) => {
+                if verbose {
+                    println!("Parse Ethernet Frame error: {}\nData: {:?}", err, data);
+                };
+                continue;
+            }
+        };
 
         let is_to_server: Option<bool> = if in_vec(&mac_list, &eth.dest_mac.0) {
             input.add_total(&size);
@@ -335,7 +344,15 @@ pub fn parse(
         }
 
         let (proto, data): (IPProtocol, &[u8]) = if eth.ethertype == EtherType::IPv4 {
-            let (data, ip4): (&[u8], IPv4Header) = parse_ipv4_header(data).unwrap();
+            let (data, ip4): (&[u8], IPv4Header) = match parse_ipv4_header(data) {
+                Ok(result) => result,
+                Err(err) => {
+                    if verbose {
+                        println!("Parse IPv4 error: {}\nData: {:?}", err, data);
+                    };
+                    continue;
+                }
+            };
 
             match &is_to_server {
                 Some(true) => input.add_ip4(&ip4, &size),
@@ -345,7 +362,15 @@ pub fn parse(
 
             (ip4.protocol, data)
         } else if eth.ethertype == EtherType::IPv6 {
-            let (_, ip6): (&[u8], IPv6Header) = parse_ipv6_header(data).unwrap();
+            let (_, ip6): (&[u8], IPv6Header) = match parse_ipv6_header(data) {
+                Ok(result) => result,
+                Err(err) => {
+                    if verbose {
+                        println!("Parse IPv6 error: {}\nData: {:?}", err, data);
+                    };
+                    continue;
+                }
+            };
 
             match &is_to_server {
                 Some(true) => input.add_ip6(&ip6, &size),
@@ -359,7 +384,15 @@ pub fn parse(
         };
 
         if proto == IPProtocol::TCP {
-            let (_, tcp): (&[u8], TcpHeader) = parse_tcp_header(data).unwrap();
+            let (_, tcp): (&[u8], TcpHeader) = match parse_tcp_header(data) {
+                Ok(result) => result,
+                Err(err) => {
+                    if verbose {
+                        println!("Parse TCP error: {}\nData: {:?}", err, data);
+                    };
+                    continue;
+                }
+            };
 
             match &is_to_server {
                 Some(true) => input.add_tcp(&tcp, &size),
@@ -369,7 +402,15 @@ pub fn parse(
         }
 
         if proto == IPProtocol::UDP {
-            let (_, udp): (&[u8], UdpHeader) = parse_udp_header(data).unwrap();
+            let (_, udp): (&[u8], UdpHeader) = match parse_udp_header(data) {
+                Ok(result) => result,
+                Err(err) => {
+                    if verbose {
+                        println!("Parse UDP error: {}\nData: {:?}", err, data);
+                    };
+                    continue;
+                }
+            };
 
             match &is_to_server {
                 Some(true) => input.add_udp(&udp, &size),
