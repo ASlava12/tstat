@@ -1,6 +1,7 @@
 use clap::Parser;
 use mac_address::MacAddressIterator;
 use pcap::{Active, Capture, Device, Inactive, Packet};
+use serde_json::json;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod tstat;
@@ -37,6 +38,10 @@ struct Args {
     /// More information, for debug
     #[clap(short, long, value_parser, default_value_t = false)]
     verbose: bool,
+
+    /// Json output
+    #[clap(short, long, value_parser, default_value_t = false)]
+    json: bool,
 }
 
 fn get_timestamp() -> Duration {
@@ -96,23 +101,44 @@ fn main() {
     let (input, output, undefined): (ParseResult, ParseResult, ParseResult) =
         parse(capture, mac_list, args.verbose);
 
-    match &args.direction[..] {
-        "in" => {
-            print_human(input, &args.wait, &args.sort, &args.top);
-        }
-        "out" => {
-            print_human(output, &args.wait, &args.sort, &args.top);
-        }
-        "undef" => {
-            print_human(undefined, &args.wait, &args.sort, &args.top);
-        }
-        _ => {
-            println!("\n\n\nINPUT:");
-            print_human(input, &args.wait, &args.sort, &args.top);
-            println!("\n\n\nOUTPUT:");
-            print_human(output, &args.wait, &args.sort, &args.top);
-            println!("\n\n\nUNDEFINED:");
-            print_human(undefined, &args.wait, &args.sort, &args.top);
+
+        // pub struct ParseResult {
+        //     pub total_count: u64,
+        //     pub total_size: u64,
+        //     pub eth_protocols: HashMap<String, Counter>,
+        //     pub ip_protocols: HashMap<String, Counter>,
+        //     pub ip4_ttl: HashMap<u8, Counter>,
+        //     pub tcp_flags: HashMap<String, Counter>,
+        //     pub src_ports: HashMap<u16, Counter>,
+        //     pub dst_ports: HashMap<u16, Counter>,
+        // }
+    if args.json {
+        println!("{}", json!(
+            {
+                "input": input.to_json(),
+                "output": output.to_json(),
+                "undefined": undefined.to_json(),
+            }
+        ).to_string());
+    } else {
+        match &args.direction[..] {
+            "in" => {
+                print_human(input, &args.wait, &args.sort, &args.top);
+            }
+            "out" => {
+                print_human(output, &args.wait, &args.sort, &args.top);
+            }
+            "undef" => {
+                print_human(undefined, &args.wait, &args.sort, &args.top);
+            }
+            _ => {
+                println!("\n\n\nINPUT:");
+                print_human(input, &args.wait, &args.sort, &args.top);
+                println!("\n\n\nOUTPUT:");
+                print_human(output, &args.wait, &args.sort, &args.top);
+                println!("\n\n\nUNDEFINED:");
+                print_human(undefined, &args.wait, &args.sort, &args.top);
+            }
         }
     }
 }

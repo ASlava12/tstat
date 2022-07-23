@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+use serde_json::{json, Value, Map};
 use std::fmt::Display;
 
 use pcap::Device;
@@ -18,6 +19,17 @@ pub struct Counter {
     pub size: u64,
 }
 
+impl Serialize for Counter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+    {
+        let mut s = serializer.serialize_struct("Counter", 2)?;
+        s.serialize_field("count", &self.count)?;
+        s.serialize_field("size", &self.size)?;
+        s.end()
+    }
+}
+
 #[derive(Debug)]
 pub struct ParseResult {
     pub total_count: u64,
@@ -28,6 +40,14 @@ pub struct ParseResult {
     pub tcp_flags: HashMap<String, Counter>,
     pub src_ports: HashMap<u16, Counter>,
     pub dst_ports: HashMap<u16, Counter>,
+}
+
+fn hashmap_to_map<S: Display>(hashmap: &HashMap<S, Counter>) -> Map<String, Value> {
+    let mut map: Map<String, Value> = Map::new();
+    for (k, v) in hashmap {
+        map.insert(k.to_string(), json!({"count": v.count, "size": v.size}));
+    }
+    map
 }
 
 impl ParseResult {
@@ -42,6 +62,19 @@ impl ParseResult {
             src_ports: HashMap::new(),
             dst_ports: HashMap::new(),
         }
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "total_count": self.total_count,
+            "total_size": self.total_size,
+            "eth_protocols": hashmap_to_map(&self.eth_protocols),
+            "ip_protocols": hashmap_to_map(&self.ip_protocols),
+            "ip4_ttl": hashmap_to_map(&self.ip4_ttl),
+            "tcp_flags": hashmap_to_map(&self.tcp_flags),
+            "src_ports": hashmap_to_map(&self.src_ports),
+            "dst_ports": hashmap_to_map(&self.dst_ports),
+        })
     }
 }
 
