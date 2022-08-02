@@ -40,6 +40,8 @@ pub struct ParseResult {
     pub tcp_flags: HashMap<String, Counter>,
     pub src_ports: HashMap<u16, Counter>,
     pub dst_ports: HashMap<u16, Counter>,
+    pub src_addr: HashMap<String, Counter>,
+    pub dst_addr: HashMap<String, Counter>,
 }
 
 fn hashmap_to_map<S: Display>(hashmap: &HashMap<S, Counter>) -> Map<String, Value> {
@@ -61,6 +63,8 @@ impl ParseResult {
             tcp_flags: HashMap::new(),
             src_ports: HashMap::new(),
             dst_ports: HashMap::new(),
+            src_addr: HashMap::new(),
+            dst_addr: HashMap::new(),
         }
     }
 
@@ -74,6 +78,8 @@ impl ParseResult {
             "tcp_flags": hashmap_to_map(&self.tcp_flags),
             "src_ports": hashmap_to_map(&self.src_ports),
             "dst_ports": hashmap_to_map(&self.dst_ports),
+            "src_addr": hashmap_to_map(&self.src_addr),
+            "dst_addr": hashmap_to_map(&self.dst_addr),
         })
     }
 }
@@ -235,6 +241,30 @@ impl ParseResult {
                 count: ip4_ttl_value.count + 1,
             },
         );
+
+        let src_addr_value: &Counter = self
+            .src_addr
+            .get(&ip4.source_addr.to_string())
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.src_addr.insert(
+            ip4.source_addr.to_string(),
+            Counter {
+                size: src_addr_value.size + size,
+                count: src_addr_value.count + 1,
+            },
+        );
+
+        let dst_addr_value: &Counter = self
+            .dst_addr
+            .get(&ip4.dest_addr.to_string())
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.dst_addr.insert(
+            ip4.dest_addr.to_string(),
+            Counter {
+                size: dst_addr_value.size + size,
+                count: dst_addr_value.count + 1,
+            },
+        );
     }
 
     fn add_ip6(self: &mut Self, ip6: &IPv6Header, size: &u64) {
@@ -250,6 +280,31 @@ impl ParseResult {
                 count: ip6_proto.count + 1,
             },
         );
+
+        let src_addr_value: &Counter = self
+            .src_addr
+            .get(&ip6.source_addr.to_string())
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.src_addr.insert(
+            ip6.source_addr.to_string(),
+            Counter {
+                size: src_addr_value.size + size,
+                count: src_addr_value.count + 1,
+            },
+        );
+
+        let dst_addr_value: &Counter = self
+            .dst_addr
+            .get(&ip6.dest_addr.to_string())
+            .unwrap_or(&Counter { size: 0, count: 0 });
+        self.dst_addr.insert(
+            ip6.dest_addr.to_string(),
+            Counter {
+                size: dst_addr_value.size + size,
+                count: dst_addr_value.count + 1,
+            },
+        );
+
     }
 
     fn add_tcp(self: &mut Self, tcp: &TcpHeader, size: &u64) {
@@ -479,7 +534,7 @@ fn print_table<T: Display>(
                 // (k, v): (&T, &Counter)
                 if n < *top {
                     println!(
-                        "    {0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
+                        "    {0: <16} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
                         k,
                         v.count as f64 / time as f64,
                         8f64 * v.size as f64 / time as f64 / 1024f64 / 1024f64,
@@ -496,7 +551,7 @@ fn print_table<T: Display>(
     }
     if fewover.size > 0 && fewover.count > 0 {
         println!(
-            "    {0: <10} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
+            "    {0: <16} | {1: <10.2} | {2: <10.2} | {3: <10.2} | {4: <10.2}",
             "Not in TOP",
             fewover.count as f64 / time as f64,
             8f64 * fewover.size as f64 / time as f64 / 1024f64 / 1024f64,
@@ -519,7 +574,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "L3PROTO", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -532,7 +587,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "L4PROTO", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -545,7 +600,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "TTL IPv4", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -558,7 +613,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "TCP FLAGS", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -571,7 +626,7 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "SRC PORT", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
@@ -584,11 +639,37 @@ pub fn print_human(result: ParseResult, time: &u64, sort: &bool, top: &u64) {
     );
 
     println!(
-        "\n    {0: <10} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
         "DST PORT", "PPS", "MbPS", "COUNT%", "SIZE%"
     );
     print_table(
         &result.dst_ports,
+        &(result.total_count as f64),
+        &(result.total_size as f64),
+        *time,
+        sort,
+        top,
+    );
+
+    println!(
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "SRC IP", "PPS", "MbPS", "COUNT%", "SIZE%"
+    );
+    print_table(
+        &result.src_addr,
+        &(result.total_count as f64),
+        &(result.total_size as f64),
+        *time,
+        sort,
+        top,
+    );
+
+    println!(
+        "\n    {0: <16} | {1: <10} | {2: <10} | {3: <10} | {4: <10}",
+        "DST IP", "PPS", "MbPS", "COUNT%", "SIZE%"
+    );
+    print_table(
+        &result.dst_addr,
         &(result.total_count as f64),
         &(result.total_size as f64),
         *time,
