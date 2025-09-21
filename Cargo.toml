@@ -1,14 +1,25 @@
 [package]
 name = "tstat"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-pcap = "0.9.2"
+# свежая pcap: умеет открывать по имени без перечисления всех интерфейсов
+pcap = "2.3"
+# лёгкий парсер уровней L2/L3/L4 (оставляем твой выбор)
 pktparse = "0.7.1"
-clap = {version = "3.2.12", features = [ "derive" ]}
-mac_address = "1.1.3"
-serde_json = "1.0.82"
-serde = "1.0.140"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# вывод и форматирование
+comfy-table = "7.1"
+bytesize = "1.3"
+
+# сериализация
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# утилиты
+anyhow = "1.0"
+
